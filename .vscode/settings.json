@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "sys_info.h": "c",
+        "limits": "c",
+        "ipmsg.h": "c",
+        "IPMSG.H": "cpp"
+    }
+}
