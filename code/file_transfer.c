@@ -15,6 +15,7 @@
 #include "file_transfer.h"     // 引入头文件
 #include "msg_handler.h"
 #include "user_list.h"
+#include "file_transfer_tcp.h"  // ✅ 引入 TCP 文件发送头文件
 
 //线程句柄进行传输文件
 pthread_t file_send_thread = {0};
@@ -187,23 +188,18 @@ void send_file_to_user(int user_id, const char *filepath)
         printf("[错误] 用户编号无效，发送失败！\n");
         return;
     }
+ 
+    
+    // ✅ 设定 TCP 文件传输端口（客户端连接接收方）
+    const uint16_t FILE_TCP_PORT = 9527;
 
-    struct sockaddr_in dest_addr = {0};
-    memset(&dest_addr, 0, sizeof(dest_addr));
-    dest_addr.sin_family = AF_INET;
-    dest_addr.sin_port = htons(2425);  // 飞鸽默认端口
+    printf("[提示] 正在通过 TCP 发送文件 \"%s\" 给 %s@%s [%s] ...\n",
+           filepath, info->username, info->hostname, info->ipaddr);
 
-    if (inet_pton(AF_INET, info->ipaddr, &dest_addr.sin_addr) <= 0) {
-        perror("[错误] IP地址格式无效");
-        return;
-    }
-
-    printf("[调试] 当前 file_socket_fd = %d\n", file_socket_fd);
-    // 启动文件发送线程
-    if (!start_file_send(&dest_addr, filepath)) 
-    {
-        printf("[错误] 文件发送线程启动失败\n");
+    // ✅ 使用 TCP 实现文件发送（新逻辑）
+    if (!start_tcp_file_send(info->ipaddr, FILE_TCP_PORT, filepath)) {
+        printf("[错误] TCP 文件发送失败！\n");
     } else {
-        printf("[提示] 正在发送文件 \"%s\" 给用户 %s@%s\n", filepath, info->username, info->hostname);
+        printf("[成功] 文件发送已启动，后台线程中传输...\n");
     }
 }

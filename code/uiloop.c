@@ -11,6 +11,7 @@
 #include "IPMSG.H"          // 协议常量、命令等
 #include "user_list.h"
 #include "sys_info.h"
+#include "file_transfer_tcp.h"
 
 // 在包含头文件后，或在代码开头添加
 #ifndef F_OK
@@ -62,6 +63,12 @@ void print_user_list(void)
 // 终端交互主循环，负责菜单与输入处理
 void ui_main_loop(void) 
 {
+    // 每次进入 UI 循环先检查是否有 TCP 文件提示
+    const char* msg = get_last_recv_file_msg();
+    if (msg) {
+        printf("\n%s\n", msg);  // 打印接收端提示
+    }
+
     char input[512];
 
     printf("\n======= 飞鸽传书（局域网通信）=======\n");
@@ -109,21 +116,29 @@ void ui_main_loop(void)
                 printf("无效编号！当前在线用户数量为 %d，请输入范围内编号。\n", user_count);
                 break;
             }
+            printf("已连接编号的用户名称为:%s, 按exit退出\n", get_user_info(user_id)->username);
+            while (1)
+            {
+                printf("请输入要发送的消息内容：");
+                if (fgets(input, sizeof(input), stdin) == NULL) {
+                    printf("读取消息失败！\n");
+                    break;
+                }
+                // 去掉末尾换行符
+                input[strcspn(input, "\n")] = '\0';
 
-            printf("请输入要发送的消息内容：");
-            if (fgets(input, sizeof(input), stdin) == NULL) {
-                printf("读取消息失败！\n");
-                break;
+                if (strlen(input) == 0) {
+                    printf("不能发送空消息！\n");
+                    continue;
+                }
+                if (strncmp(input, "exit", 4) == 0) 
+                {
+                    printf("已退出当前编号的聊天。\n");
+                    break;  // 输入 exit 则退出消息输入循环
+                }  
+                send_message_to_user(user_id, input);  // 调用发送函数
             }
-            // 去掉末尾换行符
-            input[strcspn(input, "\n")] = '\0';
-
-            if (strlen(input) == 0) {
-                printf("不能发送空消息！\n");
-                break;
-            }
-
-            send_message_to_user(user_id, input);  // 调用发送函数
+            
             break;
         }
 
@@ -149,6 +164,8 @@ void ui_main_loop(void)
                 break;
             }
 
+            while (1)
+            {
             printf("请输入文件路径：");
             if (fgets(input, sizeof(input), stdin) == NULL) {
                 printf("读取路径失败！\n");
@@ -180,9 +197,17 @@ void ui_main_loop(void)
                 break;
             }
 
+            if (strncmp(input, "exit", 4) == 0)
+            {
+                printf("已退出当前编号发送文件\n");
+                break;
+            }
+
             // ✅ 合法性都通过，发起发送
             printf("[调试] 正在准备发送文件: \"%s\"\n", input);
             send_file_to_user(user_id, input);  // 调用文件发送函数
+            }
+            
             break;
         }
 

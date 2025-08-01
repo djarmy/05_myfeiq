@@ -9,6 +9,7 @@
 #include "uiloop.h"
 #include "resource_mgr.h"
 #include "file_transfer.h"
+#include "file_transfer_tcp.h"  //  TCP 文件模块 server
 
 // gcc  -Wformat code/*.c    -o a     // -I参数指定include目录
 //gcc  -Wformat code/*.c    -o a  -lpthread
@@ -26,19 +27,26 @@ void handle_exit(int sig)
 
 
 int main(int argc, char const *argv[])
-{ 
+{
+    if (argc != 2)
+    {
+        fprintf(stderr, "请空格后输入端口参数,端口可以更改数值，usage:[%s 2425]\n", argv[0]);
+    }
+     
     //注册退出信号处理函数
     signal(SIGINT, handle_exit);  // Ctrl+C
     signal(SIGTERM, handle_exit); // kill
 
     //sys_init("rose","rootHost");
-    if (sys_init("rose","rootHost") != 0) {
+    if (sys_init("Jack","JackHost", atoi(argv[1])) != 0) {
         fprintf(stderr, "初始化接收线程失败，程序退出。\n");
         return EXIT_FAILURE;
     }
 
-    // ✅ 添加这行初始化文件传输功能
+    //  添加这行初始化文件传输功能
     init_file_transfer();
+    init_tcp_file_transfer_server();  //  启动 TCP 监听线程，接收对方发来的文件
+
 
     //初始化接受结构体
     ReceiverArgs recv_args = {0};

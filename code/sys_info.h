@@ -36,7 +36,7 @@
 #include "IPMSG.H"
 #include "msg_handler.h"
 
-int sys_init(const char *user, const char *host);
+int sys_init(const char *user, const char *host, uint16_t port);
 const char *get_user(void);
 const char *get_host(void);   
 int get_tcp_fd(void);

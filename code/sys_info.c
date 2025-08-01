@@ -1,4 +1,5 @@
 #include <stdarg.h>
+#include <stdint.h>  // 端口号、协议字段	uint16_t	固定 16 位，无符号，符合标准
 //系统初始化与登录广播 文件：sys_info.c
 #include "sys_info.h"
 #include "uiloop.h"
@@ -79,7 +80,7 @@ void send_login_broadcast(void)    //int sockfd, char *user, char *host
      * @param host 主机名
      * @return int 初始化成功返回0，失败返回-1
      */
-int sys_init(const char *user, const char *host)
+int sys_init(const char *user, const char *host, uint16_t port)
 {
     if (!user || !host)
     {
@@ -92,7 +93,7 @@ int sys_init(const char *user, const char *host)
     struct sockaddr_in addr;
     socklen_t len = sizeof(addr);
     addr.sin_family = AF_INET; // ipv4
-    addr.sin_port = htons(IPMSG_DEFAULT_PORT);    //2425
+    addr.sin_port = htons(port);    //2425   IPMSG_DEFAULT_PORT
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
     strcpy(sys_user, user);
