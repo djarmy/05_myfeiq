@@ -58,11 +58,19 @@ void send_login_broadcast(void)    //int sockfd, char *user, char *host
     struct sockaddr_in bcast_addr;
     bcast_addr.sin_family = AF_INET;
     bcast_addr.sin_port = htons(IPMSG_DEFAULT_PORT);
-    bcast_addr.sin_addr.s_addr = inet_addr("192.168.3.255");    //前者子网定向广播可避免对其它子网造成干扰;后者是inet_addr("255.255.255.255");全局地址广播，可能对无关设备造成流量干扰。
+    bcast_addr.sin_addr.s_addr = inet_addr("255.255.255.255");    //192.168.3.255前者子网定向广播可避免对其它子网造成干扰;后者是inet_addr("255.255.255.255");全局地址广播，可能对无关设备造成流量干扰。
 
     // 合并飞秋协议    ;规范写法应使用 %lu，明确匹配 unsigned long 类型
-    snprintf(buf, sizeof(buf)-1, "1:%ld:%s:%s:%lu:%s", time(NULL), get_user(), get_host(), IPMSG_BR_ENTRY, get_user());    //避免潜在误解：新手可能不清楚 snprintf 会自动留终止符，显式减 1 能减少理解成本。
-     
+    //snprintf(buf, sizeof(buf)-1, "1:%lu:%s:%s:%lu:%s", time(NULL), get_user(), get_host(), (unsigned long)IPMSG_BR_ENTRY, get_user());    //[飞鸽客户端在接收 IPMSG_BR_ENTRY 报文时，会严格按照 5 个字段解析]避免潜在误解：新手可能不清楚 snprintf 会自动留终止符，显式减 1 能减少理解成本。
+    sprintf(buf, "1:%lu:%s:%s:%lu:%s",
+        time(NULL),        // 报文编号
+        get_user(),            // 用户名
+        get_host(),            // 主机名
+        IPMSG_BR_ENTRY,    // 命令字段
+        get_user());           // 附加字段（用户名）
+
+    fprintf(stderr, "[调试] 发出的上线广播: [%s]\n", buf);
+
     // 发送登录协议
     if(sendto(udp_fd, buf, strlen(buf), 0, (struct sockaddr *)&bcast_addr, sizeof(bcast_addr)) < 0)
     {
@@ -116,7 +124,7 @@ int sys_init(const char *user, const char *host, uint16_t port)
     }
     // 设置广播属性
     int opt = 1;
-    if(setsockopt(udp_fd, SOL_SOCKET, SO_BROADCAST, &opt, sizeof(opt)) < 0)
+    if(setsockopt(udp_fd, SOL_SOCKET, SO_BROADCAST, &opt, sizeof(opt)) < 0)    //SO_REUSEADDR
     {
         perror("setsockopt failed");
         close(udp_fd);

@@ -70,7 +70,7 @@ void ui_main_loop(void)
     }
 
     char input[512];
-
+    sleep(0.6);
     printf("\n======= 飞鸽传书（局域网通信）=======\n");
     printf("1. 查看在线用户\n");
     printf("2. 发送消息\n");
@@ -166,7 +166,7 @@ void ui_main_loop(void)
 
             while (1)
             {
-            printf("请输入文件路径：");
+            printf("请输入文件路径(按exit退出)：");
             if (fgets(input, sizeof(input), stdin) == NULL) {
                 printf("读取路径失败！\n");
                 break;
@@ -204,7 +204,7 @@ void ui_main_loop(void)
             }
 
             // ✅ 合法性都通过，发起发送
-            printf("[调试] 正在准备发送文件: \"%s\"\n", input);
+            printf("[调试] 正在准备发送文件: \"%s\"\n", input); 
             send_file_to_user(user_id, input);  // 调用文件发送函数
             }
             

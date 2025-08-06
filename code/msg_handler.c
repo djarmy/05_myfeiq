@@ -7,16 +7,34 @@
 #include <stdlib.h>  // 包含 strtoul()
 #include <errno.h>   // 包含 errno 定义
 #include <limits.h>  // 包含 ULONG_MAX 定义
+#include <stdbool.h>
 
 #include "msg_handler.h"
 #include "IPMSG.H"  // 使用你项目中提供的协议头文件
 #include "user_list.h"
 #include "msg_parser.h"
+#include "sys_info.h"   // 新增，获取 get_user/get_host
+#include "file_registry.h"
 
 
-
-char username[MAX_USERNAME_LEN];            //extern 
+// 全局变量（全文件共享）
+char username[MAX_USERNAME_LEN];            
 char hostname[MAX_HOSTNAME_LEN];
+// 初始化标志
+static bool info_initialized = false;
+// 初始化 username 和 hostname，保证只执行一次
+static void init_user_info_once() {
+    if (!info_initialized) {
+        strncpy(username, get_user(), sizeof(username) - 1);
+        strncpy(hostname, get_host(), sizeof(hostname) - 1);
+        username[sizeof(username) - 1] = '\0';
+        hostname[sizeof(hostname) - 1] = '\0';
+        info_initialized = true;
+    }
+}
+
+
+static char last_packet_no[64] = {0};         
 
 static unsigned long get_packet_no()
 {
@@ -53,7 +71,7 @@ void parse_and_reply(const char *buf, struct sockaddr_in *sender_addr, int sockf
                 version, packet_no, sender_name, sender_host, cmd_str, extra);
         goto cleanup;
     }
-    fprintf(stderr, "[调试]收到报文长度: %ld 字节。 原始报文内容: [%s]\n", strlen(buf),buf);
+    //fprintf(stderr, "[调试]收到报文长度: %ld 字节。 原始报文内容: [%s]\n", strlen(buf),buf);
 
     unsigned int cmd = 0;
     unsigned int main_cmd = 0;                                                                      
@@ -102,27 +120,42 @@ void parse_and_reply(const char *buf, struct sockaddr_in *sender_addr, int sockf
 
     if (main_cmd == IPMSG_BR_ENTRY)
     {
-        //构造应答IPMSG_ANSENTRY
+        //构造应答IPMSG_ANSENTRY  我收到对方上线广播 → 我要回个 IPMSG_ANSENTRY 表示我在线，如果你 不回包，对方根本 不会知道你上线了。
         char msg[512] = {0};
 
         unsigned long pkt_no = get_packet_no();
-        snprintf(msg, sizeof(msg), "1:%lu:%s:%s:%lu", pkt_no, username, hostname, IPMSG_ANSENTRY);
-
+        snprintf(msg, sizeof(msg), "1:%lu:%s:%s:%lu:%s",
+                pkt_no,                    // 报文编号
+                get_user(),                  // 本机用户名改成函数调用
+                get_host(),                  // 本机主机名
+                (unsigned long)IPMSG_ANSENTRY,  // 主命令
+                get_user());                 // ✅ 附加字段必须有
+        //fprintf(stderr, "[调试]回应上线应答报文(IPMSG_ANSENTRY): %s\n", msg);
         if (sendto(sockfd, msg, strlen(msg), 0, (struct sockaddr*)sender_addr, sizeof(*sender_addr)) < 0)    //来自第二个参数结构体变量指针    . 6个参数
         {
             perror("sendto failed");
         }
     }else if (main_cmd == IPMSG_SENDMSG)
     {
-        printf("收到来自%s@%s的消息：%s\n", sender_name, sender_host, extra ? extra : "");    // 如果 extra 不是 NULL，就用 extra 的值   ,三目运算符简洁性：用一行代码替代 if-else 块 
+        if (strcmp(packet_no, last_packet_no) == 0) {
+            return;  // 已处理过此条消息
+        }
+        strncpy(last_packet_no, packet_no, sizeof(last_packet_no) - 1);
+        last_packet_no[sizeof(last_packet_no) - 1] = '\0';
+
+        printf("\n收到来自%s@%s的消息：%s\n", sender_name, sender_host, extra ? extra : "");    // 如果 extra 不是 NULL，就用 extra 的值   ,三目运算符简洁性：用一行代码替代 if-else 块 
         //发送RECVMSG应答
         char ack_msg[256] = {0}; 
         unsigned long pkt_no = get_packet_no();
-        snprintf(ack_msg, sizeof(ack_msg), "1:%lu:%s:%s:%lu", pkt_no, username, hostname, IPMSG_RECVMSG);    // 接受消息#define IPMSG_RECVMSG			0x00000021UL
+        snprintf(ack_msg, sizeof(ack_msg), "1:%lu:%s:%s:%lu:%s", pkt_no, username, hostname, IPMSG_RECVMSG, packet_no);    // 接受消息#define IPMSG_RECVMSG			0x00000021UL
         if (sendto(sockfd, ack_msg, strlen(ack_msg), 0, (struct sockaddr *)sender_addr, sizeof(*sender_addr)) < 0)    //当 flags 为 0 时，表示不设置任何特殊标志，使用系统默认的发送模式，
         {
             perror("sendto failed ack_msg");
         }
+    }else if (main_cmd == IPMSG_ANSENTRY)
+    {
+        //收到对方上线回应，更新在线用户列表  
+        update_user_list(sender_name, sender_host, inet_ntoa(sender_addr->sin_addr));
     }
 
     //【增量修改点】对文件传输类报文的解析
@@ -223,7 +256,7 @@ void* recv_msg_thread(void *arg)
         if (recvlen > 0)
         {
             buf[recvlen] = '\0';
-            fprintf(stderr, "\n[接收线程] 处理收到的报文...\n");
+            //fprintf(stderr, "\n[接收线程] 处理收到的报文...\n");
             parse_and_reply(buf, &sender_addr, args->sockfd);     //处理收到的报文
         }else{perror("recvfrom failed");}
         
@@ -235,6 +268,7 @@ void* recv_msg_thread(void *arg)
 // 发送消息给指定用户
 void send_message_to_user(int user_id, const char *text)
 {
+    init_user_info_once();  // ⭐️ 添加这句，确保 username 和 hostname 是有效值
     if (!text || strlen(text) == 0) {
         printf("[错误] 消息内容为空，发送失败！\n");
         return;
@@ -259,13 +293,13 @@ void send_message_to_user(int user_id, const char *text)
     // 构造协议数据
     char msg_buf[MAX_MSG_LEN] = {0};
     unsigned long pkt_no = get_packet_no();
-    unsigned long cmd = IPMSG_SENDMSG | IPMSG_NEWMASK;  // 发送消息命令
+    unsigned long cmd = IPMSG_SENDMSG | IPMSG_SENDCHECKOPT;  // 发送消息命令 这样飞秋客户端才能正确识别为 “带确认”的消息，并在窗口中显示。
 
     snprintf(msg_buf, sizeof(msg_buf), "1:%lu:%s:%s:%lu:%s",
              pkt_no, username, hostname, cmd, text);
 
-    // 创建临时 socket 发送（或使用主 socket）
-    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    //  使用主 socket
+    int sockfd =  get_udp_fd();  // 使用已绑定 2425 端口的全局 socket
     if (sockfd < 0) {
         perror("创建 socket 失败");
         return;
@@ -276,11 +310,10 @@ void send_message_to_user(int user_id, const char *text)
     if (sent < 0) {
         perror("消息发送失败");
     } else {
-        printf("[成功] 已发送消息给 %s@%s (%s)\n",
-               info->username, info->hostname, info->ipaddr);
+        //printf("[成功] 已发送消息给 %s@%s (%s)\n",info->username, info->hostname, info->ipaddr);
     }
 
-    close(sockfd);
+     
 }
 
 
